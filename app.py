@@ -108,32 +108,59 @@ def fetch_news(keyword, client_id, client_secret, hours=3):
         return []
     except Exception: return []
 
-# --- 3. Gemini 뉴스 밸류 측정 함수 ---
+# --- 3. Gemini 뉴스 밸류 측정 함수 (신버전 규격 적용) ---
 def evaluate_top_news(api_key, news_list):
-    if not news_list: return []
+    if not news_list:
+        return []
+        
     try:
         client = genai.Client(api_key=api_key)
+        
         target_news = news_list[:30]
-        news_text_for_prompt = "\n".join([f"[{idx}] 제목: {n['title']} | 요약: {n['description']}" for idx, n in enumerate(target_news)])
-        prompt = f"""당신은 보도국의 날카로운 편집 데스크입니다. 아래 기사들의 '뉴스 가치'를 총점 100점 만점으로 평가해 가장 점수가 높은 5개를 선정하세요.
-🚨 [데스크 평가 패러다임] 1. 지역 밀착성 및 파급력 2. 전국적 대중성 및 화제성
-반드시 아래 JSON 배열 형식으로만 답변하고, 점수가 높은 순서대로 5개만 담아주세요.
-[ {{"index": 0, "score": 95, "reason": "이유"}} ]\n[오늘의 기사 목록]\n{news_text_for_prompt}"""
+        news_text_for_prompt = ""
+        for idx, news in enumerate(target_news):
+            news_text_for_prompt += f"[{idx}] 제목: {news['title']} | 요약: {news['description']}\n"
+
+        prompt = f"""
+        당신은 KBC 보도국의 날카로운 편집 데스크입니다. 아래 제공된 기사들의 '뉴스 가치(News Value)'를 총점 100점 만점으로 평가하여 가장 점수가 높은 5개의 기사를 선정하세요.
+        
+        🚨 [데스크 평가 패러다임]
+        1. 지역 밀착성 및 파급력 (50점 만점): 광주·전남 지역민의 실생활과 경제에 직접적인 영향을 미치는 이슈인가?
+        2. 전국적 대중성 및 화제성 (50점 만점): 대한민국 전체 국민이 폭발적인 흥미를 갖고 클릭할 만한 기사인가?
+        
+        반드시 아래 JSON 배열 형식으로만 답변하고, 점수가 높은 순서대로 5개만 담아주세요.
+        [
+          {{"index": 0, "score": 95, "reason": "전국적인 공분을 산 대형 사건으로 폭발적인 조회수 예상"}},
+          {{"index": 5, "score": 88, "reason": "광주·전남 지역 현안이면서 전국적 관심도 집중됨"}}
+        ]
+        
+        [오늘의 기사 목록]
+        {news_text_for_prompt}
+        """
+
         response = client.models.generate_content(
             model='gemini-3.1-flash-lite',
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2)
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2
+            )
         )
         scored_data = json.loads(response.text)
+        
         top_picks = []
         for item in scored_data:
             idx = item.get("index")
             if 0 <= idx < len(target_news):
-                news = target_news[idx].copy()
-                news.update({"ai_score": item.get("score", 0), "ai_reason": item.get("reason", "")})
-                top_picks.append(news)
+                selected_news = target_news[idx].copy()
+                selected_news["ai_score"] = item.get("score", 0)
+                selected_news["ai_reason"] = item.get("reason", "")
+                top_picks.append(selected_news)
+                
         return top_picks
-    except Exception: return []
+    except Exception as e:
+        print(f"밸류 측정 에러: {e}")
+        return []
 
 # --- 4. Gemini 기사 작성 함수 ---
 def generate_gemini_article(api_key, title, content_text, format_type):
