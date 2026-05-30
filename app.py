@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import email.utils
+import time  # 화면 대기를 위한 내장 라이브러리
 import streamlit as st
 import streamlit.components.v1 as components 
 
@@ -166,21 +167,34 @@ def render_news_list(news_list, tab_key):
         st.markdown("---")
 
 # ==========================================
-# --- 웹페이지 화면 구성 ---
+# --- 웹페이지 화면 구성 (접근 통제 로직 포함) ---
 # ==========================================
 st.sidebar.title("📺 AI 뉴스룸")
 
+# 세 가지 API 키가 모두 입력되어야만 로그인 통과(True) 처리
 api_ready = all([st.session_state.api_keys['naver_id'], st.session_state.api_keys['naver_secret'], st.session_state.api_keys['gemini']])
-menu_options = ("⚙️ 환경 설정 (로그인 및 규칙)", "📝 통합 AI 데스크", "✍️ 직접 입력 변환 데스크") if api_ready else ("⚙️ 환경 설정 (로그인 및 규칙)",)
+
+# 로그인 여부에 따라 왼쪽 사이드바 메뉴를 강제로 통제합니다.
+if api_ready:
+    menu_options = ("⚙️ 환경 설정 (로그인 및 규칙)", "📝 통합 AI 데스크", "✍️ 직접 입력 변환 데스크")
+else:
+    menu_options = ("⚙️ 환경 설정 (로그인 및 규칙)",)
+    st.sidebar.error("🔒 **[잠김]** API 키를 먼저 입력해야 전체 메뉴가 열립니다.")
+
 page = st.sidebar.radio("메뉴를 선택하세요:", menu_options)
 st.sidebar.markdown("---")
 
 if page == "⚙️ 환경 설정 (로그인 및 규칙)":
+    
+    # 상단 경고창: 로그인이 안 되어 있을 때만 표시
+    if not api_ready:
+        st.error("🚨 **서비스를 이용하려면 3개의 API 키를 모두 입력하고 맨 아래의 [저장하기] 버튼을 눌러야 합니다.**")
+        
     st.markdown("### ⚙️ 개인 환경 설정")
     st.write("입력하신 모든 정보는 외부 서버가 아닌 **사용 중인 브라우저에만 암호화되어 안전하게 저장**됩니다.")
     st.markdown("---")
 
-    st.subheader("🔑 1. API 키 설정")
+    st.subheader("🔑 1. API 키 설정 (필수)")
     st.info("💡 아래 링크에서 무료로 API 키를 발급받으실 수 있습니다.\n* [🔗 네이버 검색 API 발급](https://developers.naver.com/apps/#/register)\n* [🔗 구글 Gemini API 발급](https://aistudio.google.com/app/apikey)")
     c1, c2 = st.columns(2)
     with c1:
@@ -209,6 +223,8 @@ if page == "⚙️ 환경 설정 (로그인 및 규칙)":
         st.session_state.keywords['national'] = st.text_input("🚨 두 번째 탭 (예: 정치, 사고, 속보)", value=st.session_state.keywords['national'])
     
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    # [수정됨] 저장 버튼 및 팝업 알림 로직
     if st.button("💾 모든 설정을 내 PC(브라우저)에 안전하게 저장하기", use_container_width=True):
         if all([st.session_state.api_keys['naver_id'], st.session_state.api_keys['naver_secret'], st.session_state.api_keys['gemini']]):
             # 브라우저 쿠키에 모든 설정 내용 업데이트
@@ -221,10 +237,21 @@ if page == "⚙️ 환경 설정 (로그인 및 규칙)":
             cookies["kw_local"] = st.session_state.keywords['local']
             cookies["kw_national"] = st.session_state.keywords['national']
             cookies.save()
-            st.success("✅ 저장이 완료되었습니다! 브라우저를 껐다 켜도 현재 세팅이 그대로 유지됩니다.")
+            
+            # [추가됨] 우측 하단 토스트 팝업 및 화면 상단 성공 메시지
+            st.toast("✅ 설정 저장 완료! 이제 다른 메뉴를 이용할 수 있습니다.", icon="💾")
+            st.success("✅ 저장이 성공적으로 완료되었습니다! 1.5초 후 전체 메뉴가 열립니다...")
+            
+            # 1.5초간 대기하여 사용자가 메시지를 읽을 수 있게 한 뒤 새로고침
+            time.sleep(1.5)
             st.rerun()
         else: 
-            st.error("⚠️ 세 가지 API 키를 모두 입력해야 시스템을 사용할 수 있습니다.")
+            st.error("⚠️ 세 가지 API 키를 모두 입력해야 합니다. 빈칸이 없는지 확인해 주세요.")
+
+    # 로그인이 안 되어 있다면 여기에서 코드 실행을 강제로 멈춥니다 (다른 페이지 코드 실행 방지)
+    if not api_ready:
+        st.stop()
+
 
 elif page == "📝 통합 AI 데스크":
     col_t, col_b = st.columns([8, 2])
