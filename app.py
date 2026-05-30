@@ -4,7 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import email.utils
-import time  # 화면 대기를 위한 내장 라이브러리
+import time
 import streamlit as st
 import streamlit.components.v1 as components 
 
@@ -24,12 +24,12 @@ if not cookies.ready():
     st.stop()
 
 # ==========================================
-# --- 세션 및 기본값 초기화 ---
+# --- 세션 및 기본값 초기화 (원본 규칙 100% 복구) ---
 # ==========================================
 default_rules = {
-    "report": "🚨 [필수 준수 규칙]\n방송용 리포트 기사를 작성합니다. 객관적인 문장과 구어체, 존댓말을 사용하세요. KBC 광주방송이나 SBS 8시 뉴스에 송출되는 기사들의 양식을 따릅니다. 주로 기사 초반부에 현장의 문제점이나 사례 등을 보여주고 이후 해당 사안에 대한 분석을 담는 포맷을 선호합니다.",
-    "briefing": "🚨 [필수 준수 규칙]\n방송용 단신 기사로 바꿉니다. 제공된 자료를 살펴보고 핵심적인 내용을 3줄로 뽑아서 작성합니다. 육하원칙에 맞게 세부적인 내용을 작성하며, 14글자 안팎의 방송용 자막과 제목도 함께 제안합니다.",
-    "portal": "🚨 [필수 준수 규칙]\n방송용 포털기사로 다시 작성합니다. 전형적인 역피라미드 형태이며, 날짜는 현재 시점의 경우 일자만 적고 연도와 월은 생략합니다. 다가올 미래 시제일 경우 '오는 00일'로 표기합니다. 사람들이 많이 클릭하게 할만한 기사의 제목도 2~3개씩 함께 제안합니다."
+    "report": "🚨 [필수 준수 규칙]\n발제하는 아이템에 맞춰서 방송용 리포트 기사를 작성합니다. 감정적인 요소를 최대한 절제하고 객관적인 문장을 사용합니다. 방송 기사는 구어체, 존댓말을 기반으로 작성합니다. KBC 광주방송이나 SBS 8시 뉴스에 송출되는 기사들의 양식을 따릅니다. 일반적으로 앵커멘트 2문장과 기사 본문 7~8문장, 인터뷰나 싱크 2개로 작성됩니다. 기사 전체 길이는 2분 안팎에 머물러야 합니다. 주로 기사 초반부에 현장의 문제점이나 사례 등을 보여주고 이후 해당 사안에 대한 분석을 담는 포맷을 선호합니다. 기사에 들어가는 정보는 직접 취재를 해서 제공되기도 하지만 인터넷에 기 보도된 다른 언론사의 기사들을 참고해도 좋습니다.",
+    "briefing": "🚨 [필수 준수 규칙]\n각종 보도자료나 통신매체에 있는 기사를 방송용 단신 기사로 바꾸는 작업을 수행합니다. 제공된 자료를 살펴보고 핵심적인 내용을 3줄로 뽑아서 작성합니다. 첫번째 문장은 리드문장으로 중요한 정보를 간략하게 작성합니다. 두번째 문장은 본문으로, 리드문장에 들어간 정보를 제공한 기관명을 시작으로 육하원칙에 맞게 세부적인 내용을 작성합니다. 세번째 문장은 부가 문장으로 리드와 본문에 담지 못한 추가적인 내용을 담습니다. KBC8뉴스에 나온 단신 기사의 포맷을 참고하면 좋습니다. 14글자 안팎의 방송용 자막, 제목도 함께 제안합니다.",
+    "portal": "🚨 [필수 준수 규칙]\n제공되는 기사를 방송용 포털기사로 다시 작성합니다. 기사의 방식은 전형적인 역피라미드 형태입니다. 첫 리드 문장에 기사 전체의 핵심 내용을 간략하게 담습니다. 방송기사와 같이 구어체로 존댓말을 사용합니다. 기존의 KBC 인터넷용 기사를 참고해서 규칙을 적용하면 좋습니다. 날짜는 오늘, 내일 대신 명시된 날짜를 사용합니다. 날짜는 현재 시점의 경우 일자만 적고 연도와 월은 생략합니다. 다가올 미래 시제일 경우 '오는 00일'로 표기합니다. 매 문장마다 문단을 바꿉니다. 시간을 표시할때 정확하지 않은 경우 뒤에 '쯤'을 붙입니다. 월, 일, 오전, 오후 뒤에는 붙이지 않습니다. 나이는 '마흔아홉살'이 아닌 '49살' 처럼 숫자로 작성합니다. 문장 어미에 '데요'를 쓰지 않습니다. 문장 첫 단어로 '이는'을 쓰지 않습니다. 기존 기사보다 최대한 깔끔하게 표현을 바꿉니다. 감정적인 표현은 최대한 배제합니다. 기사 내 언급된 인물이 직접 한 말은 큰따옴표로 처리합니다. 관련된 기사를 검색해서 추가적인 정보도 추가합니다. 검색해서 정보를 추가한 부분은 볼드체로 표기합니다. 검색했던 근거도 링크로 함께 보여줍니다. 사람들이 많이 클릭하게 할만한 기사의 제목도 2~3개씩 함께 제안합니다."
 }
 
 if "api_keys" not in st.session_state:
@@ -103,220 +103,37 @@ def fetch_news(keyword, client_id, client_secret, hours=3):
         return []
     except: return []
 
+# [복구] gemini-3.1-flash-lite 모델 지정 및 JSON 강제 포맷 적용
 def evaluate_top_news(api_key, news_list):
     if not news_list: return []
     try:
         client = genai.Client(api_key=api_key)
         target = news_list[:30]
         prompt_list = "\n".join([f"[{i}] 제목: {n['title']} | 요약: {n['description']}" for i, n in enumerate(target)])
-        prompt = f"당신은 편집 데스크입니다. 아래 기사들의 '뉴스 가치'를 평가해 가장 높은 5개를 선정하세요.\n[오늘의 기사 목록]\n{prompt_list}"
+        
+        prompt = f"""당신은 날카로운 편집 데스크입니다. 아래 제공된 기사들의 '뉴스 가치(News Value)'를 총점 100점 만점으로 평가하여 가장 점수가 높은 5개의 기사를 선정하세요.
+        
+        🚨 [평가 기준]
+        1. 지역 밀착성 및 파급력: 지역민의 실생활과 경제에 직접적인 영향을 미치는 이슈인가?
+        2. 전국적 대중성 및 화제성: 폭발적인 흥미를 갖고 클릭할 만한 기사인가?
+        
+        반드시 아래 JSON 배열 형식으로만 답변하고, 점수가 높은 순서대로 5개만 담아주세요.
+        [
+          {{"index": 0, "score": 95, "reason": "폭발적인 조회수 예상"}},
+          {{"index": 3, "score": 88, "reason": "지역 현안이면서 전국적 관심 집중"}}
+        ]
+        
+        [오늘의 기사 목록]
+        {prompt_list}"""
+        
         response = client.models.generate_content(
             model='gemini-3.1-flash-lite',
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2)
         )
-        top_picks = []
-        for item in json.loads(response.text):
-            idx = item.get("index")
-            if 0 <= idx < len(target):
-                n = target[idx].copy()
-                n.update({"ai_score": item.get("score", 0), "ai_reason": item.get("reason", "")})
-                top_picks.append(n)
-        return top_picks
-    except: return []
-
-def generate_gemini_article(api_key, title, content_text, format_type):
-    try:
-        client = genai.Client(api_key=api_key)
-        rule_map = {"리포트 작성": st.session_state.rules["report"], "단신 작성": st.session_state.rules["briefing"], "포털 기사 작성": st.session_state.rules["portal"]}
-        msg = f"[작업명: {format_type}]\n아래 규칙에 맞춰 재작성하세요.\n\n{rule_map.get(format_type, '')}\n\n[원본 제목]: {title}\n[원본 기사]: {content_text}"
-        res = client.models.generate_content(
-            model='gemini-3.1-flash-lite',
-            contents=msg,
-            config=types.GenerateContentConfig(system_instruction="당신은 보도국 베테랑 데스크입니다.", temperature=0.2)
-        )
-        return res.text
-    except Exception as e: return f"오류 발생: {e}"
-
-def render_news_list(news_list, tab_key):
-    if not news_list: return st.warning("기사가 없습니다.")
-    for idx, news in enumerate(news_list):
-        item_key = f"{tab_key}_{idx}"
-        if item_key not in st.session_state.news_states: st.session_state.news_states[item_key] = {"generated_text": ""}
-        if "ai_score" in news:
-            st.markdown(f"### 🏆 Top {idx+1}. [{news['title']}]({news['link']})")
-            st.info(f"**💡 AI 평점: {news['ai_score']}점** | {news['ai_reason']}")
-        else: st.markdown(f"#### [{news['title']}]({news['link']})")
-        st.write(f"요약: {news['description']}")
         
-        with st.expander("✨ 이 기사를 커스텀 양식으로 자동 변환하기"):
-            c1, c2, c3 = st.columns(3)
-            def process(f_type):
-                with st.spinner('작업 중입니다...'):
-                    text = get_article_full_text(news['link'])
-                    content = news['description'] if "ERROR" in text else text
-                    st.session_state.news_states[item_key]["generated_text"] = generate_gemini_article(st.session_state.api_keys['gemini'], news['title'], content, f_type)
-            if c1.button("🎤 리포트", key=f"r_{item_key}"): process("리포트 작성")
-            if c2.button("📃 단신", key=f"b_{item_key}"): process("단신 작성")
-            if c3.button("💻 포털", key=f"p_{item_key}"): process("포털 기사 작성")
-            
-            if st.session_state.news_states[item_key]["generated_text"]:
-                st.markdown("---")
-                st.write(st.session_state.news_states[item_key]["generated_text"])
-                create_copy_button(st.session_state.news_states[item_key]["generated_text"])
-        st.markdown("---")
-
-# ==========================================
-# --- 웹페이지 화면 구성 (접근 통제 로직 포함) ---
-# ==========================================
-st.sidebar.title("📺 AI 뉴스룸")
-
-# 세 가지 API 키가 모두 입력되어야만 로그인 통과(True) 처리
-api_ready = all([st.session_state.api_keys['naver_id'], st.session_state.api_keys['naver_secret'], st.session_state.api_keys['gemini']])
-
-# 로그인 여부에 따라 왼쪽 사이드바 메뉴를 강제로 통제합니다.
-if api_ready:
-    menu_options = ("⚙️ 환경 설정 (로그인 및 규칙)", "📝 통합 AI 데스크", "✍️ 직접 입력 변환 데스크")
-else:
-    menu_options = ("⚙️ 환경 설정 (로그인 및 규칙)",)
-    st.sidebar.error("🔒 **[잠김]** API 키를 먼저 입력해야 전체 메뉴가 열립니다.")
-
-page = st.sidebar.radio("메뉴를 선택하세요:", menu_options)
-st.sidebar.markdown("---")
-
-if page == "⚙️ 환경 설정 (로그인 및 규칙)":
-    
-    # 상단 경고창: 로그인이 안 되어 있을 때만 표시
-    if not api_ready:
-        st.error("🚨 **서비스를 이용하려면 3개의 API 키를 모두 입력하고 맨 아래의 [저장하기] 버튼을 눌러야 합니다.**")
-        
-    st.markdown("### ⚙️ 개인 환경 설정")
-    st.write("입력하신 모든 정보는 외부 서버가 아닌 **사용 중인 브라우저에만 암호화되어 안전하게 저장**됩니다.")
-    st.markdown("---")
-
-    st.subheader("🔑 1. API 키 설정 (필수)")
-    st.info("💡 아래 링크에서 무료로 API 키를 발급받으실 수 있습니다.\n* [🔗 네이버 검색 API 발급](https://developers.naver.com/apps/#/register)\n* [🔗 구글 Gemini API 발급](https://aistudio.google.com/app/apikey)")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.session_state.api_keys['naver_id'] = st.text_input("Naver Client ID", value=st.session_state.api_keys['naver_id'], type="password")
-        st.session_state.api_keys['naver_secret'] = st.text_input("Naver Client Secret", value=st.session_state.api_keys['naver_secret'], type="password")
-    with c2:
-        st.session_state.api_keys['gemini'] = st.text_input("Gemini API Key", value=st.session_state.api_keys['gemini'], type="password")
-    
-    st.markdown("---")
-    st.subheader("📝 2. 커스텀 프롬프트 (작성 규칙 설정)")
-    st.write("기본 설정된 규칙을 본인의 입맛에 맞게 수정해 보세요.")
-    with st.expander("🎤 리포트 작성 규칙", expanded=False):
-        st.session_state.rules['report'] = st.text_area("리포트 가이드라인", value=st.session_state.rules['report'], height=150)
-    with st.expander("📃 단신 작성 규칙", expanded=False):
-        st.session_state.rules['briefing'] = st.text_area("단신 가이드라인", value=st.session_state.rules['briefing'], height=150)
-    with st.expander("💻 포털 기사 작성 규칙", expanded=False):
-        st.session_state.rules['portal'] = st.text_area("포털 가이드라인", value=st.session_state.rules['portal'], height=150)
-
-    st.markdown("---")
-    st.subheader("🔍 3. 커스텀 기사 수집 키워드")
-    st.write("본인의 출입처나 관심사에 맞게 수집 키워드를 자유롭게 변경하세요. (여러 개일 경우 쉼표로 구분)")
-    kw_col1, kw_col2 = st.columns(2)
-    with kw_col1:
-        st.session_state.keywords['local'] = st.text_input("📍 첫 번째 탭 (예: 광주, 전남)", value=st.session_state.keywords['local'])
-    with kw_col2:
-        st.session_state.keywords['national'] = st.text_input("🚨 두 번째 탭 (예: 정치, 사고, 속보)", value=st.session_state.keywords['national'])
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # [수정됨] 저장 버튼 및 팝업 알림 로직
-    if st.button("💾 모든 설정을 내 PC(브라우저)에 안전하게 저장하기", use_container_width=True):
-        if all([st.session_state.api_keys['naver_id'], st.session_state.api_keys['naver_secret'], st.session_state.api_keys['gemini']]):
-            # 브라우저 쿠키에 모든 설정 내용 업데이트
-            cookies["naver_id"] = st.session_state.api_keys['naver_id']
-            cookies["naver_secret"] = st.session_state.api_keys['naver_secret']
-            cookies["gemini"] = st.session_state.api_keys['gemini']
-            cookies["rule_report"] = st.session_state.rules['report']
-            cookies["rule_briefing"] = st.session_state.rules['briefing']
-            cookies["rule_portal"] = st.session_state.rules['portal']
-            cookies["kw_local"] = st.session_state.keywords['local']
-            cookies["kw_national"] = st.session_state.keywords['national']
-            cookies.save()
-            
-            # [추가됨] 우측 하단 토스트 팝업 및 화면 상단 성공 메시지
-            st.toast("✅ 설정 저장 완료! 이제 다른 메뉴를 이용할 수 있습니다.", icon="💾")
-            st.success("✅ 저장이 성공적으로 완료되었습니다! 1.5초 후 전체 메뉴가 열립니다...")
-            
-            # 1.5초간 대기하여 사용자가 메시지를 읽을 수 있게 한 뒤 새로고침
-            time.sleep(1.5)
-            st.rerun()
-        else: 
-            st.error("⚠️ 세 가지 API 키를 모두 입력해야 합니다. 빈칸이 없는지 확인해 주세요.")
-
-    # 로그인이 안 되어 있다면 여기에서 코드 실행을 강제로 멈춥니다 (다른 페이지 코드 실행 방지)
-    if not api_ready:
-        st.stop()
-
-
-elif page == "📝 통합 AI 데스크":
-    col_t, col_b = st.columns([8, 2])
-    with col_t: st.markdown("### 📝 통합 AI 데스크")
-    
-    @st.cache_data(ttl=600)
-    def load_all_news(n_id, n_sec, local_kws, national_kws):
-        local_list = [k.strip() for k in local_kws.split(",") if k.strip()]
-        national_list = [k.strip() for k in national_kws.split(",") if k.strip()]
-        
-        loc_news = []
-        for kw in local_list:
-            loc_news.extend(fetch_news(kw, n_id, n_sec))
-            
-        nat_news = []
-        for kw in national_list:
-            nat_news.extend(fetch_news(kw, n_id, n_sec))
-            
-        loc_news = list({n['link']: n for n in loc_news}.values())
-        loc_news.sort(key=lambda x: x['time'], reverse=True)
-        
-        nat_news = list({n['link']: n for n in nat_news}.values())
-        nat_news.sort(key=lambda x: x['time'], reverse=True)
-        
-        return loc_news, nat_news
-
-    with col_b:
-        if st.button("🔄 최신 기사 새로고침"):
-            load_all_news.clear()
-            st.rerun()
-
-    with st.spinner("최신 기사 수집 중..."):
-        loc, nat = load_all_news(
-            st.session_state.api_keys['naver_id'], 
-            st.session_state.api_keys['naver_secret'],
-            st.session_state.keywords['local'],
-            st.session_state.keywords['national']
-        )
-
-    if 'top_picks' not in st.session_state: st.session_state.top_picks = []
-    if st.button("🔍 AI 데스크 픽 분석하기 (로딩 약 5~10초)"):
-        with st.spinner("뉴스 밸류 측정 중..."): st.session_state.top_picks = evaluate_top_news(st.session_state.api_keys['gemini'], loc[:20] + nat[:20])
-
-    if st.session_state.top_picks: render_news_list(st.session_state.top_picks, "top")
-    st.markdown("---")
-    
-    tab_name_1 = "📍 " + st.session_state.keywords['local'][:15] + ("..." if len(st.session_state.keywords['local']) > 15 else "")
-    tab_name_2 = "🚨 " + st.session_state.keywords['national'][:15] + ("..." if len(st.session_state.keywords['national']) > 15 else "")
-    
-    t1, t2 = st.tabs([tab_name_1, tab_name_2])
-    with t1: render_news_list(loc, "loc")
-    with t2: render_news_list(nat, "nat")
-
-elif page == "✍️ 직접 입력 변환 데스크":
-    st.markdown("### ✍️ 직접 입력 변환 데스크")
-    m_title = st.text_input("📌 기사 제목")
-    m_content = st.text_area("📝 기사 본문 입력", height=200)
-    c1, c2, c3 = st.columns(3)
-    def p_manual(f_type):
-        if not m_content.strip(): return st.error("내용을 입력하세요.")
-        with st.spinner('작성 중...'):
-            res = generate_gemini_article(st.session_state.api_keys['gemini'], m_title or "직접 입력", m_content, f_type)
-            st.session_state.manual_generated_text = res
-            st.write(res)
-    if c1.button("🎤 리포트"): p_manual("리포트 작성")
-    if c2.button("📃 단신"): p_manual("단신 작성")
-    if c3.button("💻 포털"): p_manual("포털 기사 작성")
-    if 'manual_generated_text' in st.session_state: create_copy_button(st.session_state.manual_generated_text)
+        # 마크다운 코드 블록 제거 처리 (안전장치)
+        raw_text = response.text.strip()
+        if raw_text.startswith("
+http://googleusercontent.com/immersive_entry_chip/0
+http://googleusercontent.com/immersive_entry_chip/1
