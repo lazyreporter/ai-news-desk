@@ -11,7 +11,6 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components 
 
-# [수정됨] 깃허브 최신 로그인 방식을 위한 라이브러리 추가
 from github import Github, Auth
 from google import genai
 from google.genai import types
@@ -32,7 +31,6 @@ DEFAULT_RULES = {
     "portal": "🚨 [필수 준수 규칙]\n제공되는 기사를 방송용 포털기사로 다시 작성합니다. 기사의 방식은 전형적인 역피라미드 형태입니다. 첫 리드 문장에 기사 전체의 핵심 내용을 간략하게 담습니다. 방송기사와 같이 구어체로 존댓말을 사용합니다. 기존의 KBC 인터넷용 기사를 참고해서 규칙을 적용하면 좋습니다. 날짜는 오늘, 내일 대신 명시된 날짜를 사용합니다. 날짜는 현재 시점의 경우 일자만 적고 연도와 월은 생략합니다. 다가올 미래 시제일 경우 '오는 00일'로 표기합니다. 매 문장마다 문단을 바꿉니다. 시간을 표시할때 정확하지 않은 경우 뒤에 '쯤'을 붙입니다. 월, 일, 오전, 오후 뒤에는 붙이지 않습니다. 나이는 '마흔아홉살'이 아닌 '49살' 처럼 숫자로 작성합니다. 문장 어미에 '데요'를 쓰지 않습니다. 문장 첫 단어로 '이는'을 쓰지 않습니다. 기존 기사보다 최대한 깔끔하게 표현을 바꿉니다. 감정적인 표현은 최대한 배제합니다. 기사 내 언급된 인물이 직접 한 말은 큰따옴표로 처리합니다. 관련된 기사를 검색해서 추가적인 정보도 추가합니다. 검색해서 정보를 추가한 부분은 볼드체로 표기합니다. 검색했던 근거도 링크로 함께 보여줍니다. 사람들이 많이 클릭하게 할만한 기사의 제목도 2~3개씩 함께 제안합니다."
 }
 
-# [수정됨] 깃허브 최신 Auth 토큰 로그인 방식 적용 및 에러 팝업 추가
 def sync_to_github(commit_message):
     try:
         auth = Auth.Token(GITHUB_TOKEN)
@@ -224,6 +222,7 @@ def fetch_news(keyword, client_id, client_secret, hours=3):
         return []
     except: return []
 
+# [문법 에러 완벽 수정 및 원본 복구] JSON 파싱 시 마크다운 기호를 안전하게 처리
 def evaluate_top_news(api_key, news_list):
     if not news_list: return []
     try:
@@ -253,9 +252,10 @@ def evaluate_top_news(api_key, news_list):
         )
         
         raw_text = response.text.strip()
-        if raw_text.startswith("```json"):
+        # 스트링 리터럴 에러를 방지하기 위해 마크다운 백틱을 안전하게 처리
+        if raw_text.startswith("`" * 3 + "json"):
             raw_text = raw_text[7:]
-        if raw_text.endswith("```"):
+        if raw_text.endswith("`" * 3):
             raw_text = raw_text[:-3]
         
         scored_data = json.loads(raw_text.strip())
