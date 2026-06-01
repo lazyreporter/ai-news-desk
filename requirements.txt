@@ -4,3 +4,4 @@ streamlit
 google-genai
 pandas
 openpyxl
+PyGithub
