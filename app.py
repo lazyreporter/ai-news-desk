@@ -56,7 +56,6 @@ def register_user(u_id, pw, n_id, n_sec, g_key):
 
 def login_user(u_id, pw):
     df = pd.read_excel(EXCEL_FILE)
-    # 아이디와 비밀번호가 일치하는 행 검색
     user_row = df[(df['user_id'].astype(str) == str(u_id)) & (df['password'].astype(str) == str(pw))]
     if not user_row.empty:
         return user_row.iloc[0].to_dict()
@@ -189,7 +188,7 @@ def fetch_news(keyword, client_id, client_secret, hours=3):
         return []
     except: return []
 
-# [원본 복구] JSON 강제 및 gemini-3.1-flash-lite 모델 유지
+# [문법 에러 완벽 수정 및 원본 복구] JSON 강제 및 gemini-3.1-flash-lite 모델 유지
 def evaluate_top_news(api_key, news_list):
     if not news_list: return []
     try:
@@ -209,7 +208,7 @@ def evaluate_top_news(api_key, news_list):
           {{"index": 3, "score": 88, "reason": "지역 현안이면서 전국적 관심 집중"}}
         ]
         
- [오늘의 기사 목록]
+        [오늘의 기사 목록]
         {prompt_list}"""
         
         response = client.models.generate_content(
@@ -219,11 +218,195 @@ def evaluate_top_news(api_key, news_list):
         )
         
         raw_text = response.text.strip()
-        if raw_text.startswith("```json"): 
+        if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
-        if raw_text.endswith("```"): 
+        if raw_text.endswith("
+```"):
             raw_text = raw_text[:-3]
         
         scored_data = json.loads(raw_text.strip())
         top_picks = []
         for item in scored_data:
+            idx = item.get("index")
+            if 0 <= idx < len(target):
+                n = target[idx].copy()
+                n.update({"ai_score": item.get("score", 0), "ai_reason": item.get("reason", "")})
+                top_picks.append(n)
+        return top_picks
+    except Exception as e:
+        st.error(f"픽 분석 중 오류가 발생했습니다: {e}")
+        return []
+
+# [원본 복구] 규칙 적용 및 gemini-3.1-flash-lite 모델 유지
+def generate_gemini_article(api_key, title, content_text, format_type):
+    try:
+        client = genai.Client(api_key=api_key)
+        rule_map = {
+            "리포트 작성": st.session_state.user_info["rule_report"], 
+            "단신 작성": st.session_state.user_info["rule_briefing"], 
+            "포털 기사 작성": st.session_state.user_info["rule_portal"]
+        }
+        msg = f"[작업명: {format_type}]\n아래 규칙에 맞춰 재작성하세요.\n\n{rule_map.get(format_type, '')}\n\n[원본 제목]: {title}\n[원본 기사]: {content_text}"
+        res = client.models.generate_content(
+            model='gemini-3.1-flash-lite',
+            contents=msg,
+            config=types.GenerateContentConfig(system_instruction="당신은 보도국 베테랑 데스크입니다.", temperature=0.2)
+        )
+        return res.text
+    except Exception as e: return f"오류 발생: {e}"
+
+def render_news_list(news_list, tab_key):
+    if not news_list: return st.warning("기사가 없습니다.")
+    for idx, news in enumerate(news_list):
+        item_key = f"{tab_key}_{idx}"
+        if item_key not in st.session_state.news_states: st.session_state.news_states[item_key] = {"generated_text": ""}
+        if "ai_score" in news:
+            st.markdown(f"### 🏆 Top {idx+1}. [{news['title']}]({news['link']})")
+            st.info(f"**💡 AI 평점: {news['ai_score']}점** | {news['ai_reason']}")
+        else: st.markdown(f"#### [{news['title']}]({news['link']})")
+        st.write(f"요약: {news['description']}")
+        
+        with st.expander("✨ 이 기사를 커스텀 양식으로 자동 변환하기"):
+            c1, c2, c3 = st.columns(3)
+            def process(f_type):
+                with st.spinner('작업 중입니다...'):
+                    text = get_article_full_text(news['link'])
+                    content = news['description'] if "ERROR" in text else text
+                    st.session_state.news_states[item_key]["generated_text"] = generate_gemini_article(
+                        st.session_state.user_info['gemini_key'], news['title'], content, f_type
+                    )
+            if c1.button("🎤 리포트", key=f"r_{item_key}"): process("리포트 작성")
+            if c2.button("📃 단신", key=f"b_{item_key}"): process("단신 작성")
+            if c3.button("💻 포털", key=f"p_{item_key}"): process("포털 기사 작성")
+            
+            if st.session_state.news_states[item_key]["generated_text"]:
+                st.markdown("---")
+                st.write(st.session_state.news_states[item_key]["generated_text"])
+                create_copy_button(st.session_state.news_states[item_key]["generated_text"])
+        st.markdown("---")
+
+# ==========================================
+# --- 메인 화면 (로그인 통과 시 노출) ---
+# ==========================================
+st.sidebar.title(f"📺 AI 뉴스룸 ({st.session_state.user_info['user_id']}님)")
+menu_options = ["📝 통합 AI 데스크", "✍️ 직접 입력 변환 데스크", "⚙️ 환경설정"]
+page = st.sidebar.radio("메뉴를 선택하세요:", menu_options)
+
+st.sidebar.markdown("---")
+if st.sidebar.button("로그아웃", use_container_width=True):
+    st.session_state.logged_in = False
+    st.session_state.user_info = None
+    st.rerun()
+
+if page == "📝 통합 AI 데스크":
+    col_t, col_b = st.columns([8, 2])
+    with col_t: st.markdown("### 📝 통합 AI 데스크")
+    
+    @st.cache_data(ttl=600)
+    def load_all_news(n_id, n_sec, local_kws, national_kws):
+        local_list = [k.strip() for k in local_kws.split(",") if k.strip()]
+        national_list = [k.strip() for k in national_kws.split(",") if k.strip()]
+        
+        loc_news = []
+        for kw in local_list:
+            loc_news.extend(fetch_news(kw, n_id, n_sec))
+            
+        nat_news = []
+        for kw in national_list:
+            nat_news.extend(fetch_news(kw, n_id, n_sec))
+            
+        loc_news = list({n['link']: n for n in loc_news}.values())
+        loc_news.sort(key=lambda x: x['time'], reverse=True)
+        
+        nat_news = list({n['link']: n for n in nat_news}.values())
+        nat_news.sort(key=lambda x: x['time'], reverse=True)
+        
+        return loc_news, nat_news
+
+    with col_b:
+        if st.button("🔄 최신 기사 새로고침", use_container_width=True):
+            load_all_news.clear()
+            st.rerun()
+
+    with st.spinner("사용자 키워드로 최신 기사를 수집하고 있습니다..."):
+        loc, nat = load_all_news(
+            st.session_state.user_info['naver_id'], 
+            st.session_state.user_info['naver_secret'],
+            st.session_state.user_info['kw_local'],
+            st.session_state.user_info['kw_national']
+        )
+
+    if 'top_picks' not in st.session_state: st.session_state.top_picks = []
+    
+    if st.button("🔍 AI 데스크 픽 분석하기 (로딩 약 5~10초)"):
+        with st.spinner("뉴스 밸류 측정 중..."):
+            st.session_state.top_picks = evaluate_top_news(st.session_state.user_info['gemini_key'], loc[:20] + nat[:20])
+
+    if st.session_state.top_picks: 
+        render_news_list(st.session_state.top_picks, "top")
+        
+    st.markdown("---")
+    
+    kw_l = st.session_state.user_info['kw_local']
+    kw_n = st.session_state.user_info['kw_national']
+    tab_name_1 = "📍 " + kw_l[:15] + ("..." if len(kw_l) > 15 else "")
+    tab_name_2 = "🚨 " + kw_n[:15] + ("..." if len(kw_n) > 15 else "")
+    
+    t1, t2 = st.tabs([tab_name_1, tab_name_2])
+    with t1: render_news_list(loc, "loc")
+    with t2: render_news_list(nat, "nat")
+
+elif page == "✍️ 직접 입력 변환 데스크":
+    st.markdown("### ✍️ 직접 입력 변환 데스크")
+    m_title = st.text_input("📌 기사 제목")
+    m_content = st.text_area("📝 기사 본문 입력", height=200)
+    c1, c2, c3 = st.columns(3)
+    def p_manual(f_type):
+        if not m_content.strip(): return st.error("내용을 입력하세요.")
+        with st.spinner('작성 중...'):
+            res = generate_gemini_article(st.session_state.user_info['gemini_key'], m_title or "직접 입력", m_content, f_type)
+            st.session_state.manual_generated_text = res
+            st.write(res)
+    if c1.button("🎤 리포트"): p_manual("리포트 작성")
+    if c2.button("📃 단신"): p_manual("단신 작성")
+    if c3.button("💻 포털"): p_manual("포털 기사 작성")
+    if 'manual_generated_text' in st.session_state: create_copy_button(st.session_state.manual_generated_text)
+
+elif page == "⚙️ 환경설정":
+    st.markdown("### ⚙️ 사용자 환경설정 (기사 규칙 및 키워드)")
+    st.write(f"현재 로그인된 계정: **{st.session_state.user_info['user_id']}**")
+    st.write("여기에서 수정된 규칙과 키워드는 서버의 엑셀 파일에 저장되어 언제든 반영됩니다.")
+    st.markdown("---")
+    
+    st.subheader("📝 커스텀 기사 작성 규칙")
+    new_report = st.text_area("🎤 리포트 가이드라인", value=st.session_state.user_info['rule_report'], height=150)
+    new_briefing = st.text_area("📃 단신 가이드라인", value=st.session_state.user_info['rule_briefing'], height=150)
+    new_portal = st.text_area("💻 포털 가이드라인", value=st.session_state.user_info['rule_portal'], height=150)
+    
+    st.markdown("---")
+    st.subheader("🔍 커스텀 기사 수집 키워드 (쉼표로 구분)")
+    col_k1, col_k2 = st.columns(2)
+    with col_k1:
+        new_local = st.text_input("📍 첫 번째 탭 키워드 (예: 광주, 전남)", value=st.session_state.user_info['kw_local'])
+    with col_k2:
+        new_national = st.text_input("🚨 두 번째 탭 키워드 (예: 정치, 사고, 속보)", value=st.session_state.user_info['kw_national'])
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾 변경된 설정 엑셀에 저장하기", use_container_width=True):
+        u_id = st.session_state.user_info['user_id']
+        success = update_user_settings(u_id, new_report, new_briefing, new_portal, new_local, new_national)
+        
+        if success:
+            # 현재 세션 정보도 함께 업데이트
+            st.session_state.user_info['rule_report'] = new_report
+            st.session_state.user_info['rule_briefing'] = new_briefing
+            st.session_state.user_info['rule_portal'] = new_portal
+            st.session_state.user_info['kw_local'] = new_local
+            st.session_state.user_info['kw_national'] = new_national
+            
+            st.toast("✅ 설정이 서버 엑셀에 안전하게 저장되었습니다!", icon="💾")
+            st.success("✅ 저장이 완료되었습니다!")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("🚨 엑셀 저장 중 오류가 발생했습니다.")
