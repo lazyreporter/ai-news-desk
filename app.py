@@ -11,7 +11,8 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components 
 
-from github import Github
+# [수정됨] 깃허브 최신 로그인 방식을 위한 라이브러리 추가
+from github import Github, Auth
 from google import genai
 from google.genai import types
 
@@ -24,16 +25,18 @@ EXCEL_FILE = "users.xlsx"
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
 
-# [규칙 원본 100% 복구]
+# [규칙 원본 100% 보존]
 DEFAULT_RULES = {
     "report": "🚨 [필수 준수 규칙]\n발제하는 아이템에 맞춰서 방송용 리포트 기사를 작성합니다. 감정적인 요소를 최대한 절제하고 객관적인 문장을 사용합니다. 방송 기사는 구어체, 존댓말을 기반으로 작성합니다. KBC 광주방송이나 SBS 8시 뉴스에 송출되는 기사들의 양식을 따릅니다. 일반적으로 앵커멘트 2문장과 기사 본문 7~8문장, 인터뷰나 싱크 2개로 작성됩니다. 기사 전체 길이는 2분 안팎에 머물러야 합니다. 주로 기사 초반부에 현장의 문제점이나 사례 등을 보여주고 이후 해당 사안에 대한 분석을 담는 포맷을 선호합니다. 기사에 들어가는 정보는 직접 취재를 해서 제공되기도 하지만 인터넷에 기 보도된 다른 언론사의 기사들을 참고해도 좋습니다.",
     "briefing": "🚨 [필수 준수 규칙]\n각종 보도자료나 통신매체에 있는 기사를 방송용 단신 기사로 바꾸는 작업을 수행합니다. 제공된 자료를 살펴보고 핵심적인 내용을 3줄로 뽑아서 작성합니다. 첫번째 문장은 리드문장으로 중요한 정보를 간략하게 작성합니다. 두번째 문장은 본문으로, 리드문장에 들어간 정보를 제공한 기관명을 시작으로 육하원칙에 맞게 세부적인 내용을 작성합니다. 세번째 문장은 부가 문장으로 리드와 본문에 담지 못한 추가적인 내용을 담습니다. KBC8뉴스에 나온 단신 기사의 포맷을 참고하면 좋습니다. 14글자 안팎의 방송용 자막, 제목도 함께 제안합니다.",
     "portal": "🚨 [필수 준수 규칙]\n제공되는 기사를 방송용 포털기사로 다시 작성합니다. 기사의 방식은 전형적인 역피라미드 형태입니다. 첫 리드 문장에 기사 전체의 핵심 내용을 간략하게 담습니다. 방송기사와 같이 구어체로 존댓말을 사용합니다. 기존의 KBC 인터넷용 기사를 참고해서 규칙을 적용하면 좋습니다. 날짜는 오늘, 내일 대신 명시된 날짜를 사용합니다. 날짜는 현재 시점의 경우 일자만 적고 연도와 월은 생략합니다. 다가올 미래 시제일 경우 '오는 00일'로 표기합니다. 매 문장마다 문단을 바꿉니다. 시간을 표시할때 정확하지 않은 경우 뒤에 '쯤'을 붙입니다. 월, 일, 오전, 오후 뒤에는 붙이지 않습니다. 나이는 '마흔아홉살'이 아닌 '49살' 처럼 숫자로 작성합니다. 문장 어미에 '데요'를 쓰지 않습니다. 문장 첫 단어로 '이는'을 쓰지 않습니다. 기존 기사보다 최대한 깔끔하게 표현을 바꿉니다. 감정적인 표현은 최대한 배제합니다. 기사 내 언급된 인물이 직접 한 말은 큰따옴표로 처리합니다. 관련된 기사를 검색해서 추가적인 정보도 추가합니다. 검색해서 정보를 추가한 부분은 볼드체로 표기합니다. 검색했던 근거도 링크로 함께 보여줍니다. 사람들이 많이 클릭하게 할만한 기사의 제목도 2~3개씩 함께 제안합니다."
 }
 
+# [수정됨] 깃허브 최신 Auth 토큰 로그인 방식 적용 및 에러 팝업 추가
 def sync_to_github(commit_message):
     try:
-        g = Github(GITHUB_TOKEN)
+        auth = Auth.Token(GITHUB_TOKEN)
+        g = Github(auth=auth)
         repo = g.get_repo(REPO_NAME)
         with open(EXCEL_FILE, "rb") as f:
             content = f.read()
@@ -44,17 +47,19 @@ def sync_to_github(commit_message):
             repo.create_file(EXCEL_FILE, commit_message, content)
     except Exception as e:
         print(f"GitHub 동기화 에러: {e}")
+        st.toast(f"⚠️ 깃허브 동기화 실패 (설정을 확인하세요): {e}")
 
 @st.cache_resource
 def pull_from_github():
     try:
-        g = Github(GITHUB_TOKEN)
+        auth = Auth.Token(GITHUB_TOKEN)
+        g = Github(auth=auth)
         repo = g.get_repo(REPO_NAME)
         file_content = repo.get_contents(EXCEL_FILE)
         with open(EXCEL_FILE, "wb") as f:
             f.write(base64.b64decode(file_content.content))
     except:
-        pass # 파일이 깃허브에 아직 없으면 패스
+        pass
 
 pull_from_github()
 
@@ -250,7 +255,8 @@ def evaluate_top_news(api_key, news_list):
         raw_text = response.text.strip()
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
-        if raw_text.endswith("```"):
+        if raw_text.endswith("
+```"):
             raw_text = raw_text[:-3]
         
         scored_data = json.loads(raw_text.strip())
