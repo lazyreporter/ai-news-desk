@@ -209,7 +209,7 @@ def evaluate_top_news(api_key, news_list):
           {{"index": 3, "score": 88, "reason": "지역 현안이면서 전국적 관심 집중"}}
         ]
         
-        [오늘의 기사 목록]
+ [오늘의 기사 목록]
         {prompt_list}"""
         
         response = client.models.generate_content(
@@ -219,4 +219,11 @@ def evaluate_top_news(api_key, news_list):
         )
         
         raw_text = response.text.strip()
-        if raw_text.startswith("
+        if raw_text.startswith("```json"): 
+            raw_text = raw_text[7:]
+        if raw_text.endswith("```"): 
+            raw_text = raw_text[:-3]
+        
+        scored_data = json.loads(raw_text.strip())
+        top_picks = []
+        for item in scored_data:
