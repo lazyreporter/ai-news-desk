@@ -18,11 +18,15 @@ from google.genai import types
 st.set_page_config(page_title="통합 AI 데스크", page_icon="📝", layout="wide")
 
 # ==========================================
-# --- 깃허브 동기화 및 DB 설정 ---
+# --- 깃허브 동기화 및 DB/API 비밀키 설정 ---
 # ==========================================
 EXCEL_FILE = "users.xlsx"
 GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO_NAME = st.secrets["REPO_NAME"]
+
+# [추가됨] 시스템 공통으로 사용할 네이버 API 키
+NAVER_ID = st.secrets["NAVER_ID"]
+NAVER_SECRET = st.secrets["NAVER_SECRET"]
 
 # [규칙 원본 100% 보존]
 DEFAULT_RULES = {
@@ -154,17 +158,19 @@ if not st.session_state.logged_in:
         st.write("회원가입 정보는 서버 내 엑셀 파일에 안전하게 저장됩니다.")
         reg_id = st.text_input("새 아이디")
         reg_pw = st.text_input("새 비밀번호", type="password")
-        st.info("💡 네이버 및 구글 API 키를 입력해 주세요.")
-        reg_naver_id = st.text_input("Naver Client ID")
-        reg_naver_sec = st.text_input("Naver Client Secret", type="password")
+        
+        # [수정됨] 네이버 API 발급 링크 삭제, 구글 링크만 유지
+        st.info("💡 동료 기자의 원활한 이용을 위해 아래 링크에서 무료로 구글 Gemini API 키만 발급받으시면 됩니다.\n* [🔗 구글 Gemini API 발급](https://aistudio.google.com/app/apikey)")
+        
         reg_gemini = st.text_input("Gemini API Key", type="password")
         
         if st.button("회원가입 및 저장", use_container_width=True):
-            if not all([reg_id, reg_pw, reg_naver_id, reg_naver_sec, reg_gemini]):
+            if not all([reg_id, reg_pw, reg_gemini]):
                 st.error("⚠️ 모든 빈칸을 빠짐없이 입력해 주세요.")
             else:
                 with st.spinner("엑셀 DB 생성 및 클라우드 동기화 중..."):
-                    success = register_user(reg_id, reg_pw, reg_naver_id, reg_naver_sec, reg_gemini)
+                    # [수정됨] 기존 엑셀 양식을 유지하기 위해 네이버 키 칸에 "공통사용"이라는 문자를 넣습니다.
+                    success = register_user(reg_id, reg_pw, "공통사용", "공통사용", reg_gemini)
                 if success:
                     st.success("🎉 회원가입이 완료되었습니다! 엑셀 파일에 저장되었습니다. 이제 왼쪽 탭에서 로그인해 주세요.")
                 else:
@@ -222,7 +228,6 @@ def fetch_news(keyword, client_id, client_secret, hours=3):
         return []
     except: return []
 
-# [문법 에러 완벽 수정 및 원본 복구] JSON 파싱 시 마크다운 기호를 안전하게 처리
 def evaluate_top_news(api_key, news_list):
     if not news_list: return []
     try:
@@ -252,7 +257,6 @@ def evaluate_top_news(api_key, news_list):
         )
         
         raw_text = response.text.strip()
-        # 스트링 리터럴 에러를 방지하기 위해 마크다운 백틱을 안전하게 처리
         if raw_text.startswith("`" * 3 + "json"):
             raw_text = raw_text[7:]
         if raw_text.endswith("`" * 3):
@@ -362,9 +366,10 @@ if page == "📝 통합 AI 데스크":
             st.rerun()
 
     with st.spinner("사용자 키워드로 최신 기사를 수집하고 있습니다..."):
+        # [수정됨] 개인별 네이버 키 대신, 시스템 공통 네이버 API 키를 사용하여 기사를 수집합니다.
         loc, nat = load_all_news(
-            st.session_state.user_info['naver_id'], 
-            st.session_state.user_info['naver_secret'],
+            NAVER_ID, 
+            NAVER_SECRET,
             st.session_state.user_info['kw_local'],
             st.session_state.user_info['kw_national']
         )
