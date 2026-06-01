@@ -2,4 +2,5 @@ requests
 beautifulsoup4
 streamlit
 google-genai
-streamlit-cookies-manager
+pandas
+openpyxl
