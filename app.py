@@ -255,8 +255,7 @@ def evaluate_top_news(api_key, news_list):
         raw_text = response.text.strip()
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
-        if raw_text.endswith("
-```"):
+        if raw_text.endswith("```"):
             raw_text = raw_text[:-3]
         
         scored_data = json.loads(raw_text.strip())
