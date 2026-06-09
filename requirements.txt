@@ -5,3 +5,7 @@ google-genai
 pandas
 openpyxl
 PyGithub
+olefile
+python-docx
+python-pptx
+PyPDF2
