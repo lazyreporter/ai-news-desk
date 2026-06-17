@@ -122,7 +122,7 @@ def update_user_settings(u_id, r_report, r_briefing, r_portal, k_local, k_nation
 def create_copy_button(text_to_copy):
     js_safe_text = json.dumps(text_to_copy).replace("<", "\\u003c")
     html_code = f"""
-    <button id="copy-btn" style="width: 100%; background-color: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;" onclick="copyToClipboard()">📋 텍스트 복사하기</button>
+    <button id="copy-btn" style="width:100%;background-color:#4CAF50;color:white;padding:12px 20px;border:none;border-radius:4px;cursor:pointer;font-size:16px;font-weight:bold;" onclick="copyToClipboard()">📋 텍스트 복사하기</button>
     <script>
     function copyToClipboard() {{
         const text = {js_safe_text};
@@ -205,7 +205,6 @@ def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000, 
             json=payload,
             timeout=60
         )
-
         if response.status_code != 200:
             return f"ERROR: {response.status_code} {response.text}"
 
@@ -220,21 +219,20 @@ def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000, 
 def evaluate_top_news(api_key, news_list, model_name):
     if not news_list:
         return []
-
     try:
         target = news_list[:30]
         prompt_list = "\n".join([f"[{i}] 제목: {n['title']} | 요약: {n['description']}" for i, n in enumerate(target)])
-
         prompt = f"""
 아래 뉴스들 중 기사 가치가 높은 순으로 5개를 골라주세요.
-반드시 JSON 배열만 출력하세요.
-마크다운, 코드블록, 설명문은 절대 넣지 마세요.
+반드시 JSON만 출력하세요.
+형식은 다음과 같습니다.
 
-형식:
-[
-  {{"index": 0, "score": 95, "reason": "..." }},
-  {{"index": 3, "score": 88, "reason": "..." }}
-]
+{{
+  "items": [
+    {{"index": 0, "score": 95, "reason": "..." }},
+    {{"index": 3, "score": 88, "reason": "..." }}
+  ]
+}}
 
 뉴스 목록:
 {prompt_list}
@@ -249,7 +247,33 @@ def evaluate_top_news(api_key, news_list, model_name):
             ],
             temperature=0.1,
             max_tokens=1200,
-            response_format={"type": "json_object"}
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "news_ranking",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "index": {"type": "integer"},
+                                        "score": {"type": "integer"},
+                                        "reason": {"type": "string"}
+                                    },
+                                    "required": ["index", "score", "reason"],
+                                    "additionalProperties": False
+                                }
+                            }
+                        },
+                        "required": ["items"],
+                        "additionalProperties": False
+                    }
+                }
+            }
         )
 
         raw = raw_text.strip()
@@ -257,19 +281,16 @@ def evaluate_top_news(api_key, news_list, model_name):
             raw = raw.split("```", 2)[1].strip()
 
         scored_data = json.loads(raw)
-        if isinstance(scored_data, dict):
-            scored_data = scored_data.get("items", scored_data.get("results", []))
+        items = scored_data["items"] if isinstance(scored_data, dict) and "items" in scored_data else []
 
         top_picks = []
-        for item in scored_data:
+        for item in items:
             idx = item.get("index")
             if isinstance(idx, int) and 0 <= idx < len(target):
                 n = target[idx].copy()
                 n.update({"ai_score": item.get("score", 0), "ai_reason": item.get("reason", "")})
                 top_picks.append(n)
-
         return top_picks[:5]
-
     except Exception as e:
         st.error(f"픽 분석 중 오류가 발생했습니다: {e}")
         return []
@@ -281,11 +302,13 @@ def generate_article(api_key, title, content_text, format_type, model_name):
             "단신 작성": st.session_state.user_info["rule_briefing"],
             "포털 기사 작성": st.session_state.user_info["rule_portal"]
         }
+
         system_msg = """
 당신은 보도국 베테랑 데스크입니다.
 사실을 추가로 지어내지 말고, 원문 내용 범위 안에서만 자연스럽게 기사체로 재작성하세요.
 """
         msg = f"[작업명: {format_type}]\n아래 규칙에 맞춰 재작성하세요.\n\n{rule_map.get(format_type, '')}\n\n[원본 제목]: {title}\n[원본 기사]: {content_text}"
+
         return call_openrouter(
             api_key=api_key,
             model=model_name,
@@ -304,6 +327,7 @@ init_db()
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = None
+
 if "news_states" not in st.session_state:
     st.session_state.news_states = {}
 
@@ -393,7 +417,13 @@ def render_news_list(news_list, tab_key):
                 with st.spinner("작업 중입니다..."):
                     text = get_article_full_text(news["link"])
                     content = news["description"] if "ERROR" in text else text
-                    model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
+                    if f_type == "리포트 작성":
+                        model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
+                    elif f_type == "단신 작성":
+                        model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
+                    else:
+                        model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
+
                     st.session_state.news_states[item_key]["generated_text"] = generate_article(
                         st.session_state.user_info["openrouter_key"],
                         news["title"],
