@@ -180,7 +180,7 @@ def fetch_news(keyword, client_id, client_secret, hours=3):
     except Exception:
         return []
 
-def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000):
+def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000, response_format=None):
     if not api_key:
         return "ERROR: OPENROUTER_API_KEY가 비어 있습니다."
     try:
@@ -196,14 +196,23 @@ def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000):
             "temperature": temperature,
             "max_tokens": max_tokens
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
+
         response = requests.post(
             f"{OPENROUTER_BASE_URL}/chat/completions",
             headers=headers,
             json=payload,
             timeout=60
         )
-        response.raise_for_status()
+
+        if response.status_code != 200:
+            return f"ERROR: {response.status_code} {response.text}"
+
         data = response.json()
+        if "choices" not in data or not data["choices"]:
+            return f"ERROR: invalid response {data}"
+
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"ERROR: {e}"
@@ -211,22 +220,26 @@ def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000):
 def evaluate_top_news(api_key, news_list, model_name):
     if not news_list:
         return []
+
     try:
         target = news_list[:30]
         prompt_list = "\n".join([f"[{i}] 제목: {n['title']} | 요약: {n['description']}" for i, n in enumerate(target)])
-        prompt = f"""당신은 날카로운 편집 데스크입니다.
-아래 제공된 기사들의 '뉴스 가치(News Value)'를 총점 100점 만점으로 평가하여 가장 점수가 높은 5개의 기사를 선정하세요.
 
-반드시 아래 JSON 배열 형식으로만 답변하고, 점수가 높은 순서대로 5개만 담아주세요.
-예:
+        prompt = f"""
+아래 뉴스들 중 기사 가치가 높은 순으로 5개를 골라주세요.
+반드시 JSON 배열만 출력하세요.
+마크다운, 코드블록, 설명문은 절대 넣지 마세요.
+
+형식:
 [
-  {{"index": 0, "score": 95, "reason": "폭발적인 조회수 예상"}},
-  {{"index": 3, "score": 88, "reason": "지역 현안이면서 전국적 관심 집중"}}
+  {{"index": 0, "score": 95, "reason": "..." }},
+  {{"index": 3, "score": 88, "reason": "..." }}
 ]
 
-[오늘의 기사 목록]
+뉴스 목록:
 {prompt_list}
-"""
+""".strip()
+
         raw_text = call_openrouter(
             api_key=api_key,
             model=model_name,
@@ -234,13 +247,19 @@ def evaluate_top_news(api_key, news_list, model_name):
                 {"role": "system", "content": "You are a strict JSON-only news ranking assistant."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2,
-            max_tokens=1200
+            temperature=0.1,
+            max_tokens=1200,
+            response_format={"type": "json_object"}
         )
+
         raw = raw_text.strip()
         if raw.startswith("```"):
-            raw = raw.split("```", 2)[1]
-        scored_data = json.loads(raw.strip())
+            raw = raw.split("```", 2)[1].strip()
+
+        scored_data = json.loads(raw)
+        if isinstance(scored_data, dict):
+            scored_data = scored_data.get("items", scored_data.get("results", []))
+
         top_picks = []
         for item in scored_data:
             idx = item.get("index")
@@ -248,7 +267,9 @@ def evaluate_top_news(api_key, news_list, model_name):
                 n = target[idx].copy()
                 n.update({"ai_score": item.get("score", 0), "ai_reason": item.get("reason", "")})
                 top_picks.append(n)
+
         return top_picks[:5]
+
     except Exception as e:
         st.error(f"픽 분석 중 오류가 발생했습니다: {e}")
         return []
