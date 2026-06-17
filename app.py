@@ -31,6 +31,13 @@ DEFAULT_RULES = {
     "portal": "🚨 [필수 준수 규칙]\n제공되는 기사를 방송용 포털기사로 다시 작성합니다. 기사의 방식은 전형적인 역피라미드 형태입니다. 첫 리드 문장에 기사 전체의 핵심 내용을 간략하게 담습니다. 방송기사와 같이 구어체로 존댓말을 사용합니다. 기존의 KBC 인터넷용 기사를 참고해서 규칙을 적용하면 좋습니다. 날짜는 오늘, 내일 대신 명시된 날짜를 사용합니다. 날짜는 현재 시점의 경우 일자만 적고 연도와 월은 생략합니다. 다가올 미래 시제일 경우 '오는 00일'로 표기합니다. 매 문장마다 문단을 바꿉니다. 시간을 표시할때 정확하지 않은 경우 뒤에 '쯤'을 붙입니다. 월, 일, 오전, 오후 뒤에는 붙이지 않습니다. 나이는 '마흔아홉살'이 아닌 '49살' 처럼 숫자로 작성합니다. 문장 어미에 '데요'를 쓰지 않습니다. 문장 첫 단어로 '이는'을 쓰지 않습니다. 기존 기사보다 최대한 깔끔하게 표현을 바꿉니다. 감정적인 표현은 최대한 배제합니다. 기사 내 언급된 인물이 직접 한 말은 큰따옴표로 처리합니다. 관련된 기사를 검색해서 추가적인 정보도 추가합니다. 검색해서 정보를 추가한 부분은 볼드체로 표기합니다. 검색했던 근거도 링크로 함께 보여줍니다. 사람들이 많이 클릭하게 할만한 기사의 제목도 2~3개씩 함께 제안합니다."
 }
 
+def sanitize_row(row_dict):
+    """pandas에서 읽은 딕셔너리의 NaN 값을 빈 문자열로 치환"""
+    return {
+        k: ("" if (isinstance(v, float) and (v != v)) else v)
+        for k, v in row_dict.items()
+    }
+
 def sync_to_github(commit_message):
     try:
         auth = Auth.Token(GITHUB_TOKEN)
@@ -100,7 +107,7 @@ def login_user(u_id, pw):
     df = pd.read_excel(EXCEL_FILE)
     user_row = df[(df["user_id"].astype(str) == str(u_id)) & (df["password"].astype(str) == str(pw))]
     if not user_row.empty:
-        return user_row.iloc[0].to_dict()
+        return sanitize_row(user_row.iloc[0].to_dict())
     return None
 
 def update_user_settings(u_id, r_report, r_briefing, r_portal, k_local, k_national, top_model, write_model):
@@ -279,6 +286,12 @@ def evaluate_top_news(api_key, news_list, model_name):
             return []
 
         cleaned = extract_json_text(raw_text)
+
+        # ── NaN/Infinity 등 JSON 비호환 float 값을 null로 치환 후 파싱 ──
+        cleaned = re.sub(r'\bNaN\b', 'null', cleaned)
+        cleaned = re.sub(r'\bInfinity\b', 'null', cleaned)
+        cleaned = re.sub(r'\b-Infinity\b', 'null', cleaned)
+
         data = json.loads(cleaned)
 
         if isinstance(data, list):
@@ -291,10 +304,14 @@ def evaluate_top_news(api_key, news_list, model_name):
         top_picks = []
         for item in items:
             idx = item.get("index")
+            score = item.get("score")
+            # score가 None(null로 치환된 경우)이면 0으로 대체
+            if score is None or (isinstance(score, float) and score != score):
+                score = 0
             if isinstance(idx, int) and 0 <= idx < len(target):
                 n = target[idx].copy()
-                n["ai_score"] = item.get("score", 0)
-                n["ai_reason"] = item.get("reason", "")
+                n["ai_score"] = int(score)
+                n["ai_reason"] = item.get("reason") or ""
                 top_picks.append(n)
 
         return top_picks[:5]
@@ -350,9 +367,13 @@ if not st.session_state.logged_in:
 
     with tab_login:
         st.subheader("기존 계정 로그인")
-        login_id = st.text_input("아이디", key="login_id")
-        login_pw = st.text_input("비밀번호", type="password", key="login_pw")
-        if st.button("로그인", use_container_width=True):
+        # ── st.form으로 감싸면 엔터키로도 제출 가능 ──
+        with st.form("login_form"):
+            login_id = st.text_input("아이디", key="login_id")
+            login_pw = st.text_input("비밀번호", type="password", key="login_pw")
+            submitted = st.form_submit_button("로그인", use_container_width=True)
+
+        if submitted:
             user_data = login_user(login_id, login_pw)
             if user_data:
                 st.session_state.logged_in = True
