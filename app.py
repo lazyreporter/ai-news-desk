@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.parse
 import requests
 from bs4 import BeautifulSoup
@@ -180,9 +181,10 @@ def fetch_news(keyword, client_id, client_secret, hours=3):
     except Exception:
         return []
 
-def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000, response_format=None):
+def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000):
     if not api_key:
         return "ERROR: OPENROUTER_API_KEY가 비어 있습니다."
+
     try:
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -196,9 +198,6 @@ def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000, 
             "temperature": temperature,
             "max_tokens": max_tokens
         }
-        if response_format is not None:
-            payload["response_format"] = response_format
-
         response = requests.post(
             f"{OPENROUTER_BASE_URL}/chat/completions",
             headers=headers,
@@ -209,23 +208,49 @@ def call_openrouter(api_key, model, messages, temperature=0.2, max_tokens=2000, 
             return f"ERROR: {response.status_code} {response.text}"
 
         data = response.json()
-        if "choices" not in data or not data["choices"]:
-            return f"ERROR: invalid response {data}"
+        choices = data.get("choices", [])
+        if not choices:
+            return f"ERROR: empty choices {data}"
 
-        return data["choices"][0]["message"]["content"]
+        message = choices[0].get("message", {})
+        content = message.get("content", "")
+        if not content:
+            return f"ERROR: empty content {data}"
+
+        return content
     except Exception as e:
         return f"ERROR: {e}"
+
+def extract_json_text(text):
+    if not text:
+        return ""
+    text = text.strip()
+    if text.startswith("```"):
+        parts = text.split("```")
+        if len(parts) >= 2:
+            text = parts[1]
+            if text.lstrip().startswith("json"):
+                text = text.lstrip()[4:]
+    text = text.strip()
+
+    m = re.search(r'\{.*\}|\[.*\]', text, re.S)
+    if m:
+        return m.group(0).strip()
+    return text
 
 def evaluate_top_news(api_key, news_list, model_name):
     if not news_list:
         return []
+
     try:
         target = news_list[:30]
         prompt_list = "\n".join([f"[{i}] 제목: {n['title']} | 요약: {n['description']}" for i, n in enumerate(target)])
+
         prompt = f"""
 아래 뉴스들 중 기사 가치가 높은 순으로 5개를 골라주세요.
+
 반드시 JSON만 출력하세요.
-형식은 다음과 같습니다.
+형식은 아래와 같이 items 키를 가진 객체여야 합니다.
 
 {{
   "items": [
@@ -242,54 +267,36 @@ def evaluate_top_news(api_key, news_list, model_name):
             api_key=api_key,
             model=model_name,
             messages=[
-                {"role": "system", "content": "You are a strict JSON-only news ranking assistant."},
+                {"role": "system", "content": "Return only valid JSON."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1,
-            max_tokens=1200,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "news_ranking",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "items": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "index": {"type": "integer"},
-                                        "score": {"type": "integer"},
-                                        "reason": {"type": "string"}
-                                    },
-                                    "required": ["index", "score", "reason"],
-                                    "additionalProperties": False
-                                }
-                            }
-                        },
-                        "required": ["items"],
-                        "additionalProperties": False
-                    }
-                }
-            }
+            temperature=0.0,
+            max_tokens=1200
         )
 
-        raw = raw_text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```", 2)[1].strip()
+        if raw_text.startswith("ERROR:"):
+            st.warning(raw_text)
+            return []
 
-        scored_data = json.loads(raw)
-        items = scored_data["items"] if isinstance(scored_data, dict) and "items" in scored_data else []
+        cleaned = extract_json_text(raw_text)
+        data = json.loads(cleaned)
+
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = data.get("items", data.get("results", []))
+        else:
+            items = []
 
         top_picks = []
         for item in items:
             idx = item.get("index")
             if isinstance(idx, int) and 0 <= idx < len(target):
                 n = target[idx].copy()
-                n.update({"ai_score": item.get("score", 0), "ai_reason": item.get("reason", "")})
+                n["ai_score"] = item.get("score", 0)
+                n["ai_reason"] = item.get("reason", "")
                 top_picks.append(n)
+
         return top_picks[:5]
     except Exception as e:
         st.error(f"픽 분석 중 오류가 발생했습니다: {e}")
@@ -417,13 +424,7 @@ def render_news_list(news_list, tab_key):
                 with st.spinner("작업 중입니다..."):
                     text = get_article_full_text(news["link"])
                     content = news["description"] if "ERROR" in text else text
-                    if f_type == "리포트 작성":
-                        model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
-                    elif f_type == "단신 작성":
-                        model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
-                    else:
-                        model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
-
+                    model_name = st.session_state.user_info.get("write_model", DEFAULT_WRITE_MODEL)
                     st.session_state.news_states[item_key]["generated_text"] = generate_article(
                         st.session_state.user_info["openrouter_key"],
                         news["title"],
