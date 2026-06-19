@@ -1,6 +1,11 @@
-streamlit
 requests
+beautifulsoup4
+streamlit
+google-genai
 pandas
 openpyxl
-beautifulsoup4
 PyGithub
+olefile
+python-docx
+python-pptx
+PyPDF2
